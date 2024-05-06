@@ -1,0 +1,12 @@
+P3-D10	para	snv	chr6:32038320	A>G
+P50-D5	para	snv	chr6:32038320	A>G
+P13-G4	para	snv	chr6:32038320	A>G
+P11-H8	para	snv	chr6:32038320	A>G
+P50-A5	para	snv	chr6:32038320	A>G
+P50-C3	para	snv	chr6:32038320	A>G
+P1-C1	para	snv	chr6:32038320	A>G
+P50-C2	para	snv	chr6:32038320	A>G
+P9-B2	para	snv	chr6:32038320	A>G
+P50-C3	para	snv	chr6:32038320	A>G
+P50-C6	para	snv	chr6:32038320	A>G
+P2-D12	para	snv	chr6:32038320	A>G
