@@ -60,7 +60,8 @@ def choose_pos_leniency(target_vartype):
         return ins_pos_leniency
     elif target_vartype == "DEL":
         return del_pos_leniency
-
+    elif target_vartype == "DUP":
+        return del_pos_leniency
 
 def get_all_str_motif_permutations(seq):
     results = []
@@ -152,7 +153,6 @@ def search_snv(
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
     target_vartype = target_variant["vartype"].upper()
-
     target_interval = "{}:{}-{}".format(
         target_chrom,
         target_start - choose_pos_leniency(target_vartype),
@@ -183,17 +183,16 @@ def search_snv(
         print("Missing: {}".format(target_variant))
         return False
 
-    elif target_vartype == "DEL":
+    elif target_vartype == "DEL|DUP":
         if len(target_variant["region"].split(":")[1].split("-")) == 1:
             target_end = target_start
         else:
             target_end = int(target_variant["region"].split(":")[1].split("-")[1])
 
         for variant in vcf_reader(target_interval):
-            print(variant)
 
             if (
-                variant.var_subtype == "del"
+                (variant.var_subtype == "del" or variant.var_subtype == "dup")
                 and condition_svlen_within_leniency_using_ref_alt(
                     target_start, target_end, variant, del_size_leniency
                 )
@@ -270,7 +269,7 @@ def search_pbsv(
         print("Missing: {}".format(target_variant))
         return False
 
-    elif target_vartype in ["DEL", "DUP"]:
+    elif target_vartype in ["DEL", "DUP", "INV"]:
         target_start = int(target_variant["region"].split(":")[1].split("-")[0])
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader:
@@ -537,7 +536,6 @@ def main(input_variants):
         header=None,
         names=["sample", "source", "vartype", "region", "specific_info"],
     )
-
     # Results should have all columns from the input plus additional columns for the search results: 'found'
     all_res = variants
     all_res["found"] = "NA"
@@ -594,6 +592,9 @@ def main(input_variants):
 
     print(all_res)
 
+    # save it to a file
+    output_file = 'out.txt'
+    all_res.to_csv(output_file, sep="\t", index=False)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
