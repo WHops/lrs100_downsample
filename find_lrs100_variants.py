@@ -19,8 +19,9 @@ del_size_leniency = 5
 bnd_pos_leniency = 10
 cnv_overlap_minpct = 0.5
 str_pos_leniency = 1000
-str_size_leniency = 0.5
+str_min_overlap_frac = 0.5
 para_del_dup_inv_size_leniency = 5
+mt_percentpoints_leniency = 10
 
 
 def get_and_check_path(run_basedir, target_variant, source):
@@ -36,7 +37,9 @@ def get_and_check_path(run_basedir, target_variant, source):
         basestring = "{}/{}/GR*/STR*/{}.sorted.vcf"
     elif source == "para_json":
         basestring = "{}/{}/GR*/Par*/{}.json"
-
+    elif source == "mt":
+        basestring = "{}/{}/NC*/MT*/{}*hcdiffs.txt"
+        
     vcf_paths = glob.glob(
         basestring.format(
             run_basedir, target_variant["sample"], target_variant["sample"]
@@ -55,6 +58,8 @@ def get_and_check_path(run_basedir, target_variant, source):
 
 def choose_pos_leniency(target_vartype):
     if target_vartype == "SNV":
+        return snv_pos_leniency
+    if target_vartype == "Substitution":
         return snv_pos_leniency
     elif target_vartype == "INS":
         return ins_pos_leniency
@@ -117,7 +122,7 @@ def condition_svlen_within_leniency_using_info_svlen(
     return False
 
 
-def condition_inslen_within_leniency(target_inslen, variant, leniency):
+def condition_inslen_within_leniency_using_ref_alt(target_inslen, variant, leniency):
     if abs(len(variant.ALT[0]) - target_inslen) <= leniency:
         return True
     return False
@@ -134,6 +139,45 @@ def condition_svlen_within_leniency_using_ref_alt(
     return False
 
 
+
+
+def search_mt(
+    target_variant,
+    run_basedir,
+    snv_pos_leniency,
+    mt_percentpoints_leniency
+):
+    vcf_paths = get_and_check_path(run_basedir, target_variant, "mt")
+    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+        return vcf_paths
+    
+    tsv = pd.read_csv(vcf_paths[0], sep="\t", header=0)
+    target_chrom = target_variant["region"].split(":")[0]
+    target_start = int(target_variant["region"].split(":")[1].split("-")[0])
+    target_vartype = target_variant["vartype"].upper()
+    if (target_vartype.upper() == 'SNV'):
+        target_vartype  == 'Substitution'
+        
+    
+    target_ref, target_alt = target_variant["specific_info"].split(":")[0].split(">")[:2]
+    target_percent = float(target_variant["specific_info"].split(":")[1])
+    
+    for index, row in tsv.iterrows():
+        
+        if (row['Chromosome'] == target_chrom 
+            and condition_start_within_leniency(
+                    target_start, row["Start position"], snv_pos_leniency
+                )
+            and abs(row["% variation"] - target_percent) <= mt_percentpoints_leniency
+            and condition_same_snp_substitution(
+                target_ref, target_alt, row['Reference'], row['Variant']
+            )
+        ):
+                print("Found: {}".format(row))
+                return True
+        
+    return(False)
+    
 # Variant processing functions (these need to be defined properly based on actual requirements)
 def search_snv(
     target_variant,
@@ -158,9 +202,9 @@ def search_snv(
         target_start - choose_pos_leniency(target_vartype),
         target_start + choose_pos_leniency(target_vartype),
     )
+    
     if target_vartype == "SNV":
         target_ref, target_alt = target_variant["specific_info"].split(">")[:2]
-
         for variant in vcf_reader(target_interval):
             if condition_same_snp_substitution(
                 target_ref, target_alt, variant.REF, variant.ALT[0]
@@ -175,7 +219,7 @@ def search_snv(
         target_inslen = int(target_variant["specific_info"])
 
         for variant in vcf_reader(target_interval):
-            if variant.var_subtype == "ins" and condition_inslen_within_leniency(
+            if variant.var_subtype.upper() == target_vartype and condition_inslen_within_leniency_using_ref_alt(
                 target_inslen, variant, ins_size_leniency
             ):
                 print("Found: {}".format(variant))
@@ -192,7 +236,7 @@ def search_snv(
         for variant in vcf_reader(target_interval):
 
             if (
-                (variant.var_subtype == "del" or variant.var_subtype == "dup")
+                (variant.var_subtype.upper() == target_vartype)
                 and condition_svlen_within_leniency_using_ref_alt(
                     target_start, target_end, variant, del_size_leniency
                 )
@@ -220,7 +264,7 @@ def search_hificnv(target_variant, run_basedir, cnv_overlap_minpct):
 
     # Iterate over all variants in the VCF
     for variant in vcf_reader:
-        if variant.CHROM == target_chrom and variant.var_subtype == target_vartype:
+        if variant.CHROM == target_chrom and variant.var_subtype.upper() == target_vartype:
             rec_overlap = reciprocal_overlap(
                 target_start, target_end, variant.start, variant.end
             )
@@ -256,11 +300,11 @@ def search_pbsv(
         for variant in vcf_reader:
             if (
                 variant.CHROM == target_chrom
-                and variant.var_subtype == target_vartype
+                and variant.var_subtype.upper() == target_vartype
                 and condition_start_within_leniency(
                     target_start, variant.start, ins_pos_leniency
                 )
-                and condition_inslen_within_leniency(
+                and condition_inslen_within_leniency_using_ref_alt(
                     target_inslen, variant, ins_size_leniency
                 )
             ):
@@ -269,13 +313,37 @@ def search_pbsv(
         print("Missing: {}".format(target_variant))
         return False
 
-    elif target_vartype in ["DEL", "DUP", "INV"]:
+    elif target_vartype == "DEL":
         target_start = int(target_variant["region"].split(":")[1].split("-")[0])
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader:
             if (
                 variant.CHROM == target_chrom
-                and variant.var_subtype == target_vartype
+                and variant.var_subtype.upper() == target_vartype
+                and condition_start_end_within_leniency(
+                    target_start,
+                    target_end,
+                    variant.start,
+                    variant.end,
+                    del_pos_leniency,
+                )
+                and condition_svlen_within_leniency_using_ref_alt(
+                    target_start, target_end, variant, del_size_leniency
+                )
+            ):
+                print("Found: {}".format(variant))
+                return True
+        print("Missing: {}".format(target_variant))
+        return False
+    
+    elif target_vartype in ["DUP", "INV"]:
+        target_start = int(target_variant["region"].split(":")[1].split("-")[0])
+        target_end = int(target_variant["region"].split(":")[1].split("-")[1])
+        for variant in vcf_reader:
+
+            if (
+                variant.CHROM == target_chrom
+                and variant.var_subtype.upper() == target_vartype
                 and condition_start_end_within_leniency(
                     target_start,
                     target_end,
@@ -299,6 +367,7 @@ def search_pbsv(
         target_pos2 = int(target_variant["region"].split("-")[1].split(":")[1])
 
         for variant in vcf_reader:
+
             if (
                 variant.var_subtype == "complex"
                 and variant.CHROM == target_chrom1
@@ -307,7 +376,7 @@ def search_pbsv(
                 )
                 and (
                     variant.ALT[0].replace("]", "[").split(":")[0].split("[")[1].lower()
-                    == target_chrom2
+                    == target_chrom2.lower()
                 )
                 # Hope this here is ok? We check if the 2nd bp is also in the leniency range
                 and condition_start_within_leniency(
@@ -340,13 +409,13 @@ def search_para(
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
     target_vartype = target_variant["vartype"].upper()
-
+    pdb.set_trace()
     if target_vartype == "SNV":
         target_ref, target_alt = target_variant["specific_info"].split(">")[:2]
         for variant in vcf_reader:
             if (
                 variant.CHROM == target_chrom
-                and variant.var_type == "snp"
+                and variant.var_type.upper() in ['SNP', 'SNV']
                 and condition_start_within_leniency(
                     target_start, variant.start, snv_pos_leniency
                 )
@@ -364,11 +433,11 @@ def search_para(
         for variant in vcf_reader():
             if (
                 variant.CHROM == target_chrom
-                and variant.var_subtype == "ins"
+                and variant.var_type.upper() == target_vartype
                 and condition_start_within_leniency(
                     target_start, variant.start, ins_pos_leniency
                 )
-                and condition_inslen_within_leniency(
+                and condition_inslen_within_leniency_using_ref_alt(
                     target_inslen, variant, ins_size_leniency
                 )
             ):
@@ -416,9 +485,10 @@ def search_para(
     elif target_vartype == "INV":
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader():
+
             if (
                 variant.CHROM == target_chrom
-                and variant.var_subtype == "INV"
+                and variant.var_subtype.upper() == "INV"
                 and condition_start_end_within_leniency(
                     target_start,
                     target_end,
@@ -436,7 +506,7 @@ def search_para(
         return False
 
 
-def search_str(target_variant, run_basedir, str_pos_leniency, str_size_leniency):
+def search_str(target_variant, run_basedir, str_pos_leniency, str_min_overlap_frac):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "str")
     if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
         return vcf_paths
@@ -453,27 +523,29 @@ def search_str(target_variant, run_basedir, str_pos_leniency, str_size_leniency)
     for variant in vcf_reader:
         if variant.ALT == []:
             variant.ALT = ["*"]
+        #print(variant.start)
+        
 
-        target_end = target_start + len(variant.ALT[0])
+        for alt_allele in variant.ALT:
+            target_end = target_start + len(alt_allele)
 
-        effective_len = len(variant.ALT[0]) - len(variant.REF)
-        target_sizes = target_variant["specific_info"].split(":")[1]
-        target_motif = target_variant["specific_info"].split(":")[0]
-        target_len = int(target_sizes.split(">")[1]) - int(target_sizes.split(">")[0])
+            effective_len = len(alt_allele) - len(variant.REF)
+            target_sizes = target_variant["specific_info"].split(":")[1]
+            target_motif = target_variant["specific_info"].split(":")[0]
+            target_len = int(target_sizes.split(">")[1]) - int(target_sizes.split(">")[0])
 
-        frac_ol = min(effective_len, target_len) / max(effective_len, target_len)
-
-        if (
-            variant.CHROM == target_chrom
-            and variant.var_subtype.upper() == target_vartype
-            and condition_start_end_within_leniency(
-                target_start, target_end, variant.start, variant.end, str_pos_leniency
-            )
-            and frac_ol >= str_size_leniency
-            and variant.INFO.get("MOTIFS") in target_motif_options
-        ):
-            print("Found: {}".format(variant))
-            return True
+            frac_ol = min(effective_len, target_len) / max(effective_len, target_len)
+            if (
+                variant.CHROM == target_chrom
+                #and variant.var_subtype.upper() == target_vartype
+                #and condition_start_end_within_leniency(
+                #    target_start, target_end, variant.start, variant.end, str_pos_leniency
+                #)
+                and frac_ol >= str_min_overlap_frac
+                and any(x in target_motif_options for x in variant.INFO.get("MOTIFS").split(','))
+            ):
+                print("Found: {}".format(variant))
+                return True
 
     print("MISSING: {}".format(target_variant))
     return False
@@ -497,7 +569,7 @@ def search_para_json(target_variant, run_basedir):
     }
 
     haplotypes = list(data[target_main_gene]["final_haplotypes"].values())
-
+        
     if target_main_gene == "rccx":
         haplotypes = [element.replace("hap", "rccx_hap") for element in haplotypes]
 
@@ -506,6 +578,12 @@ def search_para_json(target_variant, run_basedir):
 
     gene_counts = Counter(haplotype.split("_")[0] for haplotype in haplotypes)
 
+    # for smn1 we have separate rules because the json is inconsistent as hell. 
+    if target_main_gene == 'smn1':
+        gene_counts = {'smn1':data[target_main_gene]['smn1_cn'],
+                      'smn2':data[target_main_gene]['smn2_cn']}
+        
+        
     # Check for zero-value entries in target_gene_dict and add them to gene_counts if not present
     for key, value in target_gene_dict.items():
         if value == 0 and key not in gene_counts:
@@ -578,7 +656,14 @@ def main(input_variants):
             result = search_para_json(variant, run_basedir)
         elif source == "str":
             result = search_str(
-                variant, run_basedir, str_pos_leniency, str_size_leniency
+                variant, run_basedir, str_pos_leniency, str_min_overlap_frac
+            )
+        elif source == "mt":
+            result = search_mt(
+                variant,
+                run_basedir,
+                snv_pos_leniency,
+                mt_percentpoints_leniency
             )
 
         else:
