@@ -34,7 +34,7 @@ def get_and_check_path(run_basedir, target_variant, source):
     elif source == "para":
         basestring = "{}/{}/GR*/Par*/{}.general.variants.sorted.vcf"
     elif source == "str":
-        basestring = "{}/{}/GR*/STR*/{}.sorted.vcf"
+        basestring = "{}/{}/GR*/STR*/{}.sorted.vcf*"
     elif source == "para_json":
         basestring = "{}/{}/GR*/Par*/{}.json"
     elif source == "mt":
@@ -45,6 +45,9 @@ def get_and_check_path(run_basedir, target_variant, source):
             run_basedir, target_variant["sample"], target_variant["sample"]
         )
     )
+    
+    # Filter out any index files (such as .csi)
+    vcf_paths = [path for path in vcf_paths if path.endswith(('.vcf', '.vcf.gz'))]
 
     if len(vcf_paths) == 0:
         print("VCF file not found for variant:", target_variant)
@@ -202,7 +205,6 @@ def search_snv(
         target_start - choose_pos_leniency(target_vartype),
         target_start + choose_pos_leniency(target_vartype),
     )
-    
     if target_vartype == "SNV":
         target_ref, target_alt = target_variant["specific_info"].split(">")[:2]
         for variant in vcf_reader(target_interval):
@@ -227,7 +229,9 @@ def search_snv(
         print("Missing: {}".format(target_variant))
         return False
 
-    elif target_vartype == "DEL|DUP":
+    elif target_vartype in ["DEL", "DUP"]:
+        
+        
         if len(target_variant["region"].split(":")[1].split("-")) == 1:
             target_end = target_start
         else:
@@ -409,7 +413,6 @@ def search_para(
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
     target_vartype = target_variant["vartype"].upper()
-    pdb.set_trace()
     if target_vartype == "SNV":
         target_ref, target_alt = target_variant["specific_info"].split(">")[:2]
         for variant in vcf_reader:
@@ -483,6 +486,7 @@ def search_para(
         return False
 
     elif target_vartype == "INV":
+        
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader():
 
@@ -493,7 +497,7 @@ def search_para(
                     target_start,
                     target_end,
                     variant.start,
-                    variant.end,
+                    variant.start + int(variant.INFO.get('SVLEN')),
                     del_pos_leniency,
                 )
                 and condition_svlen_within_leniency_using_info_svlen(
@@ -600,7 +604,7 @@ def search_para_json(target_variant, run_basedir):
 
     if target_total_n == actual_total_n:
         print("Found: {}".format(target_variant))
-        return "CN correct"
+        return "CN-correct"
 
     return False
 

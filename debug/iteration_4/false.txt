@@ -1,0 +1,5 @@
+P1-H6	hificnv	dup	chr11:116268000-121206000	none	False
+P50-D3	snv	snv	chr2:151608478	T>A	False
+P50-D3	para	snv	chr2:151608478	T>A	False
+P50-D3	snv	snv	chr2:151597932	T>A	False
+P50-D3	para	snv	chr2:151597932	T>A	False

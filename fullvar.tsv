@@ -110,13 +110,9 @@ P50-H2	pbsv	del	chr15:31062999-31099444	none
 P50-A3	snv	snv	chr16:21752505	G>A
 P50-A3	para	snv	chr16:21752505	G>A
 P50-C3	snv	snv	chr2:151674476	C>T
-P50-C3	para	snv	chr2:151674476	C>T
 P50-C3	snv	del	chr2:151600438-151600441	none
-P50-C3	para	del	chr2:151600438-151600441	none
 P50-C3	snv	del	chr2:151589885-151589888	none
-P50-C3	para	del	chr2:151589885-151589888	none
 P50-D3	snv	snv	chr2:151540695	A>G
-P50-D3	para	snv	chr2:151540695	A>G
 P50-D3	snv	snv	chr2:151608478	T>A
 P50-D3	para	snv	chr2:151608478	T>A
 P50-D3	snv	snv	chr2:151597932	T>A
