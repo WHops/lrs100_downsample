@@ -1,0 +1,2 @@
+P50-C3	snv	del	chr2:151589885-151589888	none
+P50-B5	snv	dup	chr13:32333291	none

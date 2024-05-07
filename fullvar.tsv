@@ -39,7 +39,7 @@ P3-D10	para	snv	chr15:43603385	G>A
 P3-D10	para_json	cnv	strc	strc:1,strcp1:2
 P1-D11	pbsv	ins	chr3:63912713	153
 P1-D11	str	ins	chr3:63912684-63912726	CAG:42>195
-P4-C10	snv	del	chrY:22660001-23362000	none
+P4-C10	hificnv	del	chrY:22660001-23362000	none
 P4-C10	hificnv	del	chrY:23542001-26104000	none
 P1-B3	pbsv	bnd	chr16:77846048-chr13:84950354	none
 P1-B3	pbsv	bnd	chr16:77846059-chr13:84950353	none
@@ -113,10 +113,6 @@ P50-C3	snv	snv	chr2:151674476	C>T
 P50-C3	snv	del	chr2:151600438-151600441	none
 P50-C3	snv	del	chr2:151589885-151589888	none
 P50-D3	snv	snv	chr2:151540695	A>G
-P50-D3	snv	snv	chr2:151608478	T>A
-P50-D3	para	snv	chr2:151608478	T>A
-P50-D3	snv	snv	chr2:151597932	T>A
-P50-D3	para	snv	chr2:151597932	T>A
 P50-D3	snv	snv	chr2:151587379	T>A
 P50-D3	para	snv	chr2:151587379	T>A
 P50-E3	pbsv	ins	chr19:45770251-45770252	1121
@@ -130,7 +126,7 @@ P50-F4	hificnv	del	chr17:45618001-46134000	none
 P50-F4	hificnv	del	chr17:46422001-46490000	none
 P50-H4	hificnv	del	chr1:196756001-196940000	none
 P50-A5	snv	del	chr17:43093577	none
-P50-B5	snv	dup	chr13:32333291	none
+P50-B5	snv	ins	chr13:32333291	1
 P50-C5	para_json	cnv	smn1	smn1:0
 P50-C5	para_json	cnv	smn1	smn2:1
 P50-D5	para_json	cnv	smn1	smn1:0
