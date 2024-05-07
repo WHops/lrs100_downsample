@@ -10,7 +10,7 @@ import warnings
 import json
 from collections import Counter
 
-run_basedir = "/ifs/data/research/revio/work"
+run_basedir = "/ifs/data/research/projects/jordi/wp130_downsample_Phase1_Revio/results/20X"
 snv_pos_leniency = 1
 ins_pos_leniency = 10
 ins_size_leniency = 5
@@ -26,19 +26,19 @@ mt_percentpoints_leniency = 10
 
 def get_and_check_path(run_basedir, target_variant, source):
     if source == "snv":
-        basestring = "{}/{}/GR*/SNV*/{}*.vcf.gz"
+        basestring = "{}/{}/SNV*/{}*.vcf.gz"
     elif source == "hificnv":
-        basestring = "{}/{}/GR*/CNV*/{}*.vcf"
+        basestring = "{}/{}/CNV*/{}*.vcf"
     elif source == "pbsv":
-        basestring = "{}/{}/GR*/SV*/{}*.vcf"
+        basestring = "{}/{}/SV*/{}*.vcf"
     elif source == "para":
-        basestring = "{}/{}/GR*/Par*/{}.general.variants.sorted.vcf"
+        basestring = "{}/{}/Par*/{}.general.variants.sorted.vcf"
     elif source == "str":
-        basestring = "{}/{}/GR*/STR*/{}.sorted.vcf*"
+        basestring = "{}/{}/STR*/{}.sorted.vcf*"
     elif source == "para_json":
-        basestring = "{}/{}/GR*/Par*/{}.json"
+        basestring = "{}/{}/Par*/{}.json"
     elif source == "mt":
-        basestring = "{}/{}/NC*/MT*/{}*hcdiffs.txt"
+        basestring = "{}/{}/MT*/{}*hcdiffs.txt"
 
     vcf_paths = glob.glob(
         basestring.format(
@@ -55,15 +55,15 @@ def get_and_check_path(run_basedir, target_variant, source):
 
     if len(vcf_paths) == 0:
         print("VCF file not found for variant:", target_variant)
-        return "File missing"
+        return "File-missing"
     if len(vcf_paths) > 1:
         print("Multiple VCF files found:", vcf_paths)
-        return "Multiple files found"
+        return "Multiple-files-found"
 
     return vcf_paths
 
 
-def get_and_check_path(run_basedir, target_variant, source):
+def get_and_check_path_orig(run_basedir, target_variant, source):
     if source == "snv":
         basestring = "{}/{}/GR*/SNV*/{}*.vcf.gz"
     elif source == "hificnv":
@@ -186,7 +186,9 @@ def condition_svlen_within_leniency_using_ref_alt(
     return False
 
 
-def search_mt(target_variant, run_basedir, snv_pos_leniency, mt_percentpoints_leniency):
+def search_mt(
+    target_variant, run_basedir, snv_pos_leniency, mt_percentpoints_leniency
+):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "mt")
     if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
         return vcf_paths
@@ -219,8 +221,6 @@ def search_mt(target_variant, run_basedir, snv_pos_leniency, mt_percentpoints_le
 
     return False
 
-
-# Variant processing functions (these need to be defined properly based on actual requirements)
 def search_snv(
     target_variant,
     run_basedir,
@@ -230,6 +230,7 @@ def search_snv(
     del_pos_leniency,
     del_size_leniency,
 ):
+
     vcf_paths = get_and_check_path(run_basedir, target_variant, "snv")
     if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
         return vcf_paths
@@ -255,7 +256,6 @@ def search_snv(
 
         print("Missing: {}".format(target_variant))
         return False
-
     elif target_vartype == "INS":
         target_inslen = int(target_variant["specific_info"])
 
@@ -288,8 +288,9 @@ def search_snv(
         print("Missing: {}".format(target_variant))
         return False
 
-
-def search_hificnv(target_variant, run_basedir, cnv_overlap_minpct):
+def search_hificnv(
+    target_variant, run_basedir, cnv_overlap_minpct
+):
     # cnv_overlap_minpct = 0.5
 
     vcf_paths = get_and_check_path(run_basedir, target_variant, "hificnv")
@@ -318,7 +319,6 @@ def search_hificnv(target_variant, run_basedir, cnv_overlap_minpct):
                 return True
     print("Missing: {}".format(target_variant))
     return False
-
 
 def search_pbsv(
     target_variant,
@@ -434,7 +434,6 @@ def search_pbsv(
         print("Missing: {}".format(target_variant))
         return False
 
-
 def search_para(
     target_variant,
     run_basedir,
@@ -546,8 +545,9 @@ def search_para(
         print("Missing: {}".format(target_variant))
         return False
 
-
-def search_str(target_variant, run_basedir, str_pos_leniency, str_min_overlap_frac):
+def search_str(
+    target_variant, run_basedir, str_pos_leniency, str_min_overlap_frac
+):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "str")
     if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
         return vcf_paths
@@ -579,10 +579,6 @@ def search_str(target_variant, run_basedir, str_pos_leniency, str_min_overlap_fr
             frac_ol = min(effective_len, target_len) / max(effective_len, target_len)
             if (
                 variant.CHROM == target_chrom
-                # and variant.var_subtype.upper() == target_vartype
-                # and condition_start_end_within_leniency(
-                #    target_start, target_end, variant.start, variant.end, str_pos_leniency
-                # )
                 and frac_ol >= str_min_overlap_frac
                 and any(
                     x in target_motif_options
@@ -595,10 +591,12 @@ def search_str(target_variant, run_basedir, str_pos_leniency, str_min_overlap_fr
     print("MISSING: {}".format(target_variant))
     return False
 
-
-def search_para_json(target_variant, run_basedir):
+def search_para_json(
+    target_variant, run_basedir
+):
     json_genes_underscores = ["smn1", "pms2"]
     json_genes_missing_names = ["rccx"]
+    json_genes_
 
     json_paths = get_and_check_path(run_basedir, target_variant, "para_json")
     if (json_paths == "File missing") or (json_paths == "Multiple files found"):
@@ -615,8 +613,8 @@ def search_para_json(target_variant, run_basedir):
 
     haplotypes = list(data[target_main_gene]["final_haplotypes"].values())
 
-    if target_main_gene == "rccx":
-        haplotypes = [element.replace("hap", "rccx_hap") for element in haplotypes]
+    if target_main_gene in json_genes_missing_names:
+        haplotypes = [element.replace("hap", "{}_hap".format(target_main_gene)) for element in haplotypes]
 
     if target_main_gene in json_genes_underscores:
         haplotypes = [element.replace("hap", "_hap") for element in haplotypes]
