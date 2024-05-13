@@ -10,13 +10,12 @@ import warnings
 import json
 from collections import Counter
 
-run_basedir = "/ifs/data/research/projects/jordi/wp130_downsample_Phase1_Revio/results/20X"
 snv_pos_leniency = 1
 ins_pos_leniency = 10
 ins_size_leniency = 5
 del_pos_leniency = 10
 del_size_leniency = 5
-bnd_pos_leniency = 10
+bnd_pos_leniency = 50
 cnv_overlap_minpct = 0.5
 str_pos_leniency = 1000
 str_min_overlap_frac = 0.5
@@ -24,7 +23,7 @@ para_del_dup_inv_size_leniency = 5
 mt_percentpoints_leniency = 10
 
 
-def get_and_check_path(run_basedir, target_variant, source):
+def get_and_check_path_rand(run_basedir, target_variant, source):
     if source == "snv":
         basestring = "{}/{}/SNV*/{}*.vcf.gz"
     elif source == "hificnv":
@@ -63,7 +62,7 @@ def get_and_check_path(run_basedir, target_variant, source):
     return vcf_paths
 
 
-def get_and_check_path_orig(run_basedir, target_variant, source):
+def get_and_check_path(run_basedir, target_variant, source):
     if source == "snv":
         basestring = "{}/{}/GR*/SNV*/{}*.vcf.gz"
     elif source == "hificnv":
@@ -94,10 +93,10 @@ def get_and_check_path_orig(run_basedir, target_variant, source):
 
     if len(vcf_paths) == 0:
         print("VCF file not found for variant:", target_variant)
-        return "File missing"
+        return "File-missing"
     if len(vcf_paths) > 1:
         print("Multiple VCF files found:", vcf_paths)
-        return "Multiple files found"
+        return "Multiple-files-found"
 
     return vcf_paths
 
@@ -190,7 +189,7 @@ def search_mt(
     target_variant, run_basedir, snv_pos_leniency, mt_percentpoints_leniency
 ):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "mt")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     tsv = pd.read_csv(vcf_paths[0], sep="\t", header=0)
@@ -230,9 +229,8 @@ def search_snv(
     del_pos_leniency,
     del_size_leniency,
 ):
-
     vcf_paths = get_and_check_path(run_basedir, target_variant, "snv")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
@@ -294,7 +292,7 @@ def search_hificnv(
     # cnv_overlap_minpct = 0.5
 
     vcf_paths = get_and_check_path(run_basedir, target_variant, "hificnv")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
@@ -330,7 +328,7 @@ def search_pbsv(
     del_size_leniency,
 ):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "pbsv")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
@@ -443,7 +441,7 @@ def search_para(
     para_del_dup_inv_size_leniency,
 ):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "para")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
@@ -549,7 +547,7 @@ def search_str(
     target_variant, run_basedir, str_pos_leniency, str_min_overlap_frac
 ):
     vcf_paths = get_and_check_path(run_basedir, target_variant, "str")
-    if (vcf_paths == "File missing") or (vcf_paths == "Multiple files found"):
+    if (vcf_paths == "File-missing") or (vcf_paths == "Multiple-files-found"):
         return vcf_paths
 
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
@@ -594,13 +592,13 @@ def search_str(
 def search_para_json(
     target_variant, run_basedir
 ):
+
     json_genes_underscores = ["smn1", "pms2"]
     json_genes_missing_names = ["rccx"]
-    json_genes_
 
     json_paths = get_and_check_path(run_basedir, target_variant, "para_json")
-    if (json_paths == "File missing") or (json_paths == "Multiple files found"):
-        return json_path
+    if (json_paths == "File-missing") or (json_paths == "Multiple-files-found"):
+        return json_paths
 
     with open(json_paths[0], "r") as file:
         data = json.load(file)
@@ -611,6 +609,10 @@ def search_para_json(
         item.split(":")[0]: int(item.split(":")[1]) for item in target_cns_list
     }
 
+    # Sometimes the json has no values at all. Not sure why.
+    # See labbook entry [para_json_null] from 8th May 2024
+    if all(value is None for value in data[target_main_gene].values()):
+        return False
     haplotypes = list(data[target_main_gene]["final_haplotypes"].values())
 
     if target_main_gene in json_genes_missing_names:
@@ -650,18 +652,17 @@ def search_para_json(
 
 
 # Main function to execute
-def main(input_variants):
+def main(input_variants, run_basedir, output_file):
     # Load the variants
     variants = pd.read_csv(
         input_variants,
         sep="\t",
         header=None,
-        names=["sample", "source", "vartype", "region", "specific_info"],
+        names=["sample", "variantID", "source", "vartype", "region", "specific_info"],
     )
     # Results should have all columns from the input plus additional columns for the search results: 'found'
     all_res = variants
     all_res["found"] = "NA"
-
     for index, variant in variants.iterrows():
         source = variant["source"].lower()
 
@@ -719,12 +720,12 @@ def main(input_variants):
     print(all_res)
 
     # save it to a file
-    output_file = "out.txt"
     all_res.to_csv(output_file, sep="\t", index=False)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python script.py <input_variants_file>")
+    if len(sys.argv) != 4:
+        print("Usage: python find_lrs100_variants.py <input_variants_file> <run_basedir> <output_file>")
         sys.exit(1)
-    main(sys.argv[1])
+        
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
