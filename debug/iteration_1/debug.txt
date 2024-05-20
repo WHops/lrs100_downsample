@@ -1,1 +1,0 @@
-P50-D3	snv	snv	chr2:151608478	T>A

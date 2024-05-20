@@ -1,5 +1,0 @@
-P50-C3	para	snv	chr2:151674476	C>T	False
-P50-C3	para	del	chr2:151600438-151600441	none	False
-P50-C3	para	del	chr2:151589885-151589888	none	False
-P50-D3	para	snv	chr2:151540695	A>G	False
-P50-D8	para	inv	chrX:154890327-155454650	none	False

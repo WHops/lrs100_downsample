@@ -1,7 +1,0 @@
-P50-B1	snv	snv	chrX:154191716	T>C	False
-P50-B2	str	ins	chr3:129172576:129172732	CAGG:156>2687	False
-P50-C3	snv	del	chr2:151589885-151589888	none	False
-P50-F4	hificnv	del	chr17:46422001-46490000	none	False
-P50-H7	str	ins	chrX:147912050-147912110	CGG:60>1298	False
-P50-A8	hificnv	dup	chr19:1802001-2150000	none	False
-P50-A8	hificnv	dup	chr19:47256001-47526000	none	False
