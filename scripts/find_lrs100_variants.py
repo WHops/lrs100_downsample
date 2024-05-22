@@ -9,6 +9,7 @@ import glob
 import warnings
 import json
 from collections import Counter
+from typing import List, Tuple
 
 snv_pos_leniency = 1
 ins_pos_leniency = 10
@@ -18,12 +19,15 @@ del_size_leniency = 5
 bnd_pos_leniency = 50
 cnv_overlap_minpct = 0.5
 str_pos_leniency = 1000
-str_min_overlap_frac = 0.5
+str_cn_fraction_leniency = 20 # We allow 20% difference; e.g. expected 10, allowed 8-12. Expected 200, allowed 160-240
+#str_min_overlap_frac = 0.5
 para_del_dup_inv_size_leniency = 5
-mt_percentpoints_leniency = 10
+mt_percentpoints_leniency = 20
 
 
-def get_and_check_path_downsample(run_basedir, permutation_index, target_variant, source):
+def get_and_check_path_downsample(
+    run_basedir, permutation_index, target_variant, source
+):
     if source == "snv":
         basestring = "{}/{}/i{}/SNV*/{}*.vcf.gz"
     elif source == "hificnv":
@@ -41,7 +45,10 @@ def get_and_check_path_downsample(run_basedir, permutation_index, target_variant
 
     vcf_paths = glob.glob(
         basestring.format(
-            run_basedir, target_variant["sample"], permutation_index, target_variant["sample"]
+            run_basedir,
+            target_variant["sample"],
+            permutation_index,
+            target_variant["sample"],
         )
     )
 
@@ -123,6 +130,51 @@ def get_all_str_motif_permutations(seq):
     return results
 
 
+# Function to extract motif counts for a predefined motif
+def extract_specific_motif_count(variant, motif_of_interest: str) -> List[int]:
+    motifs = variant.INFO.get("MOTIFS").split(',')
+    motif_counts = variant.format('MC')[0]
+    if (motif_counts == '.'):
+        return []
+    if motif_of_interest in motifs:
+        motif_index = motifs.index(motif_of_interest)
+        mc_fields = motif_counts.split(',')
+        counts = [int(field.split('_')[motif_index]) for field in mc_fields]
+        return counts
+    return []
+
+# Function to check if counts are within leniency range
+def check_counts_within_leniency(counts: List[int], desired: Tuple[int, int], leniency: float) -> bool:
+    
+
+    condition_minimum_1 = desired[0] < 0
+    condition_minimum_2 = desired[1] < 0
+    
+    counts = [abs(count) for count in counts]
+
+    if len(counts) != 2:
+        return False
+
+    # Calculate the acceptable range for each desired count
+    desired1_min = desired[0] * (1 - leniency / 100)
+    desired1_max = desired[0] * (1 + leniency / 100)
+    desired2_min = desired[1] * (1 - leniency / 100)
+    desired2_max = desired[1] * (1 + leniency / 100)
+
+    # Check if both counts are within the acceptable range
+    if condition_minimum_1:
+        count1_within_range = desired1_min <= counts[0]
+    else:
+        count1_within_range = desired1_min <= counts[0] <= desired1_max
+
+    if condition_minimum_2:
+        count2_within_range = desired2_min <= counts[1]
+    else:
+        count2_within_range = desired2_min <= counts[1] <= desired2_max
+    
+    return count1_within_range and count2_within_range
+
+
 def reciprocal_overlap(start1, end1, start2, end2):
     overlap_start = max(start1, start2)
     overlap_end = min(end1, end2)
@@ -185,10 +237,7 @@ def condition_svlen_within_leniency_using_ref_alt(
     return False
 
 
-def search_mt(
-    target_variant, vcf_paths, snv_pos_leniency, mt_percentpoints_leniency
-):
-
+def search_mt(target_variant, vcf_paths, snv_pos_leniency, mt_percentpoints_leniency):
     tsv = pd.read_csv(vcf_paths[0], sep="\t", header=0)
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
@@ -217,6 +266,7 @@ def search_mt(
 
     return False
 
+
 def search_snv(
     target_variant,
     vcf_paths,
@@ -226,7 +276,6 @@ def search_snv(
     del_pos_leniency,
     del_size_leniency,
 ):
-
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
     target_chrom = target_variant["region"].split(":")[0]
@@ -280,9 +329,8 @@ def search_snv(
         print("Missing: {}".format(target_variant))
         return False
 
-def search_hificnv(
-    target_variant, vcf_paths, cnv_overlap_minpct
-):
+
+def search_hificnv(target_variant, vcf_paths, cnv_overlap_minpct):
     # cnv_overlap_minpct = 0.5
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
@@ -307,6 +355,7 @@ def search_hificnv(
     print("Missing: {}".format(target_variant))
     return False
 
+
 def search_pbsv(
     target_variant,
     vcf_paths,
@@ -316,7 +365,6 @@ def search_pbsv(
     del_pos_leniency,
     del_size_leniency,
 ):
-
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
     target_chrom = target_variant["region"].split(":")[0]
@@ -418,6 +466,7 @@ def search_pbsv(
         print("Missing: {}".format(target_variant))
         return False
 
+
 def search_para(
     target_variant,
     vcf_paths,
@@ -426,7 +475,6 @@ def search_para(
     del_pos_leniency,
     para_del_dup_inv_size_leniency,
 ):
-
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
     target_chrom = target_variant["region"].split(":")[0]
@@ -526,42 +574,33 @@ def search_para(
         print("Missing: {}".format(target_variant))
         return False
 
-def search_str(
-    target_variant, vcf_paths, str_pos_leniency, str_min_overlap_frac
-):
 
+def search_str(target_variant, vcf_paths, str_pos_leniency, str_cn_fraction_leniency):
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
-    target_vartype = target_variant["vartype"].upper()
-    target_motif_options = get_all_str_motif_permutations(
-        target_variant["specific_info"].split(":")[0]
-    )
-
+    
+    target_sizes = target_variant["specific_info"].split(":")[1]
+    
+    # Little magic to handle the 'plus' ('p') in sizes
+    target_sizes = ','.join(['-' + x[:-1] if 'p' in x else x for x in target_sizes.split(',')])
+    
+    target_motif = target_variant["specific_info"].split(":")[0]
+    
+    target_motifcounts = [int(target_sizes.split(",")[0]), int(target_sizes.split(",")[1])]
     for variant in vcf_reader:
-        if variant.ALT == []:
-            variant.ALT = ["*"]
-        # print(variant.start)
 
-        for alt_allele in variant.ALT:
-            target_end = target_start + len(alt_allele)
-
-            effective_len = len(alt_allele) - len(variant.REF)
-            target_sizes = target_variant["specific_info"].split(":")[1]
-            target_motif = target_variant["specific_info"].split(":")[0]
-            target_len = int(target_sizes.split(">")[1]) - int(
-                target_sizes.split(">")[0]
-            )
-
-            frac_ol = min(effective_len, target_len) / max(effective_len, target_len)
-            if (
-                variant.CHROM == target_chrom
-                and frac_ol >= str_min_overlap_frac
-                and any(
-                    x in target_motif_options
-                    for x in variant.INFO.get("MOTIFS").split(",")
+        variant_motifcounts = extract_specific_motif_count(variant, target_motif)
+        if len(variant_motifcounts) == 0:
+            continue
+        
+        if (
+            variant.CHROM == target_chrom
+            and condition_start_within_leniency(
+                target_start, variant.start, str_pos_leniency
                 )
+            and check_counts_within_leniency(variant_motifcounts, target_motifcounts, str_cn_fraction_leniency)
             ):
                 print("Found: {}".format(variant))
                 return True
@@ -569,16 +608,13 @@ def search_str(
     print("MISSING: {}".format(target_variant))
     return False
 
-def search_para_json(
-    target_variant, json_paths
-):
 
+def search_para_json(target_variant, json_paths):
     with open(json_paths[0], "r") as file:
         data = json.load(file)
-        
+
     json_genes_underscores = ["smn1", "pms2"]
     json_genes_missing_names = ["rccx"]
-
 
     target_main_gene = target_variant["region"]
     target_cns_list = target_variant["specific_info"].split(",")
@@ -593,7 +629,10 @@ def search_para_json(
     haplotypes = list(data[target_main_gene]["final_haplotypes"].values())
 
     if target_main_gene in json_genes_missing_names:
-        haplotypes = [element.replace("hap", "{}_hap".format(target_main_gene)) for element in haplotypes]
+        haplotypes = [
+            element.replace("hap", "{}_hap".format(target_main_gene))
+            for element in haplotypes
+        ]
 
     if target_main_gene in json_genes_underscores:
         haplotypes = [element.replace("hap", "_hap") for element in haplotypes]
@@ -606,7 +645,7 @@ def search_para_json(
             "smn1": data[target_main_gene]["smn1_cn"],
             "smn2": data[target_main_gene]["smn2_cn"],
         }
-        
+
     # where the values of gene_counts are 'null', convert to 0
     gene_counts = {k: 0 if v is None else v for k, v in gene_counts.items()}
 
@@ -645,12 +684,13 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
     all_res["found"] = "NA"
     for index, variant in variants.iterrows():
         source = variant["source"].lower()
-        #pdb.set_trace()
         if permutation_index:
-            infile_paths = get_and_check_path_downsample(run_basedir, permutation_index, variant, source)
-        else: 
+            infile_paths = get_and_check_path_downsample(
+                run_basedir, permutation_index, variant, source
+            )
+        else:
             infile_paths = get_and_check_path(run_basedir, variant, source)
-        
+
         if (infile_paths == "File-missing") or (infile_paths == "Multiple-files-found"):
             # Update the 'found' column
             all_res.at[index, "found"] = infile_paths
@@ -691,7 +731,7 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
             result = search_para_json(variant, infile_paths)
         elif source == "str":
             result = search_str(
-                variant, infile_paths, str_pos_leniency, str_min_overlap_frac
+                variant, infile_paths, str_pos_leniency, str_cn_fraction_leniency
             )
         elif source == "mt":
             result = search_mt(
@@ -715,8 +755,16 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
 
 if __name__ == "__main__":
     if not len(sys.argv) in {4, 5}:
-        print("Usage: python find_lrs100_variants.py <input_variants_file> <run_basedir> <output_file> <permutation_index (optional)>")
+        print(
+            "Usage: python find_lrs100_variants.py <input_variants_file> <run_basedir> <output_file> <permutation_index (optional)>"
+        )
         sys.exit(1)
-        
-    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else None)
+
+    main(
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3],
+        sys.argv[4] if len(sys.argv) == 5 else None,
+    )
+
 
