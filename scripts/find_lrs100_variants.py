@@ -11,17 +11,19 @@ import json
 from collections import Counter
 from typing import List, Tuple
 
+
 snv_pos_leniency = 1
-ins_pos_leniency = 10
-ins_size_leniency = 5
-del_pos_leniency = 10
-del_size_leniency = 5
-bnd_pos_leniency = 50
+
+indel_pos_leniency = 10
+indel_size_leniency = 5
+
+sv_overlap_minpct = 0.5
 cnv_overlap_minpct = 0.5
+
+bnd_pos_leniency = 50
+
 str_pos_leniency = 1000
-str_cn_fraction_leniency = 20 # We allow 20% difference; e.g. expected 10, allowed 8-12. Expected 200, allowed 160-240
-#str_min_overlap_frac = 0.5
-para_del_dup_inv_size_leniency = 5
+str_cn_fraction_leniency = 20 
 mt_percentpoints_leniency = 20
 
 
@@ -70,20 +72,38 @@ def get_and_check_path_downsample(
 
 
 def get_and_check_path(run_basedir, target_variant, source):
-    if source == "snv":
-        basestring = "{}/{}/SNV*/{}*.vcf.gz"
-    elif source == "hificnv":
-        basestring = "{}/{}/CNV*/{}*.vcf"
-    elif source == "pbsv":
-        basestring = "{}/{}/SV*/{}*.vcf"
-    elif source == "para":
-        basestring = "{}/{}/Par*/{}.general.variants.sorted.vcf"
-    elif source == "str":
-        basestring = "{}/{}/STR*/{}.sorted.vcf*"
-    elif source == "para_json":
-        basestring = "{}/{}/Par*/{}.json"
-    elif source == "mt":
-        basestring = "{}/{}/MT*/{}*hcdiffs.txt"
+    sourcedir = 'full' #perm
+    
+    if sourcedir == 'full':
+        if source == "snv":
+            basestring = "{}/{}/G*/SNV*/{}*.vcf.gz"
+        elif source == "hificnv":
+            basestring = "{}/{}/G*/CNV*/{}*.vcf"
+        elif source == "pbsv":
+            basestring = "{}/{}/G*/SV*/{}*.vcf"
+        elif source == "para":
+            basestring = "{}/{}/G*/Par*/{}.general.variants.sorted.vcf"
+        elif source == "str":
+            basestring = "{}/{}/G*/STR*/{}.sorted.vcf*"
+        elif source == "para_json":
+            basestring = "{}/{}/G*/Par*/{}.json"
+        elif source == "mt":
+            basestring = "{}/{}/N*/MT*/{}*hcdiffs.txt"
+    elif sourcedir=='perm':
+        if source == "snv":
+            basestring = "{}/{}/SNV*/{}*.vcf.gz"
+        elif source == "hificnv":
+            basestring = "{}/{}/CNV*/{}*.vcf"
+        elif source == "pbsv":
+            basestring = "{}/{}/SV*/{}*.vcf"
+        elif source == "para":
+            basestring = "{}/{}/Par*/{}.general.variants.sorted.vcf"
+        elif source == "str":
+            basestring = "{}/{}/STR*/{}.sorted.vcf*"
+        elif source == "para_json":
+            basestring = "{}/{}/Par*/{}.json"
+        elif source == "mt":
+            basestring = "{}/{}/MT*/{}*hcdiffs.txt"
 
     vcf_paths = glob.glob(
         basestring.format(
@@ -109,17 +129,13 @@ def get_and_check_path(run_basedir, target_variant, source):
 
 
 def choose_pos_leniency(target_vartype):
-    if target_vartype == "SNV":
+    if target_vartype in ["SNV", "Substitution"]:
         return snv_pos_leniency
-    if target_vartype == "Substitution":
-        return snv_pos_leniency
-    elif target_vartype == "INS":
-        return ins_pos_leniency
-    elif target_vartype == "DEL":
-        return del_pos_leniency
-    elif target_vartype == "DUP":
-        return ins_pos_leniency
+    elif target_vartype in ["INS", "DEL", "DUP"]:
+        return indel_pos_leniency
 
+
+    # check if target_vartype is ins, del or dup
 
 def get_all_str_motif_permutations(seq):
     results = []
@@ -129,9 +145,9 @@ def get_all_str_motif_permutations(seq):
         results.extend([shifted, reverse_complement])
     return results
 
-
 # Function to extract motif counts for a predefined motif
 def extract_specific_motif_count(variant, motif_of_interest: str) -> List[int]:
+    
     motifs = variant.INFO.get("MOTIFS").split(',')
     motif_counts = variant.format('MC')[0]
     if (motif_counts == '.'):
@@ -183,8 +199,27 @@ def reciprocal_overlap(start1, end1, start2, end2):
     overlap_length = overlap_end - overlap_start
     length1 = end1 - start1
     length2 = end2 - start2
-    return max(overlap_length / length1, overlap_length / length2)
+    return min(overlap_length / length1, overlap_length / length2)
 
+def merge_cnv_intervals(intervals, distance):
+    if not intervals:
+        return []
+
+    # Sort intervals by start position
+    intervals.sort()
+
+    merged_intervals = [intervals[0]]
+
+    for current_start, current_end in intervals[1:]:
+        last_start, last_end = merged_intervals[-1]
+
+        # Check if the current interval overlaps or is within the distance threshold
+        if current_start <= last_end + distance:
+            merged_intervals[-1] = (last_start, max(last_end, current_end))
+        else:
+            merged_intervals.append((current_start, current_end))
+
+    return merged_intervals
 
 def condition_same_snp_substitution(target_ref, target_alt, variant_ref, variant_alt):
     if target_ref == variant_ref and target_alt == variant_alt:
@@ -271,10 +306,9 @@ def search_snv(
     target_variant,
     vcf_paths,
     snv_pos_leniency,
-    ins_pos_leniency,
-    ins_size_leniency,
-    del_pos_leniency,
-    del_size_leniency,
+    indel_pos_leniency,
+    indel_size_leniency,
+    sv_overlap_minpct
 ):
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
@@ -286,6 +320,7 @@ def search_snv(
         target_start - choose_pos_leniency(target_vartype),
         target_start + choose_pos_leniency(target_vartype),
     )
+    
     if target_vartype == "SNV":
         target_ref, target_alt = target_variant["specific_info"].split(">")[:2]
         for variant in vcf_reader(target_interval):
@@ -297,18 +332,24 @@ def search_snv(
 
         print("Missing: {}".format(target_variant))
         return False
+    
     elif target_vartype == "INS":
         target_inslen = int(target_variant["specific_info"])
 
+        
         for variant in vcf_reader(target_interval):
-            if (
-                variant.var_subtype.upper() == target_vartype
-                and condition_inslen_within_leniency_using_ref_alt(
-                    target_inslen, variant, ins_size_leniency
-                )
-            ):
+
+            vartype_condition = variant.var_subtype.upper() == target_vartype
+
+            if target_inslen <= 50:
+                position_condition = condition_inslen_within_leniency_using_ref_alt(target_inslen, variant, indel_size_leniency)
+            else:
+                position_condition = reciprocal_overlap(target_start, target_start+target_inslen, variant.start, variant.start+len(variant.ALT[0])) >= sv_overlap_minpct
+                
+            if (vartype_condition and position_condition):
                 print("Found: {}".format(variant))
                 return True
+            
         print("Missing: {}".format(target_variant))
         return False
 
@@ -319,51 +360,52 @@ def search_snv(
             target_end = int(target_variant["region"].split(":")[1].split("-")[1])
 
         for variant in vcf_reader(target_interval):
-            if (
-                variant.var_subtype.upper() == target_vartype
-            ) and condition_svlen_within_leniency_using_ref_alt(
-                target_start, target_end, variant, del_size_leniency
-            ):
+            
+            vartype_condition = variant.var_subtype.upper() == target_vartype
+            
+            if target_end - target_start <= 50:
+                position_condition = condition_svlen_within_leniency_using_ref_alt(target_start, target_end, variant, indel_size_leniency)
+            else:
+                position_condition = reciprocal_overlap(target_start, target_end, variant.start, variant.end) >= sv_overlap_minpct
+
+            if (vartype_condition and position_condition):
                 print("Found: {}".format(variant))
                 return True
+                
         print("Missing: {}".format(target_variant))
         return False
 
-
 def search_hificnv(target_variant, vcf_paths, cnv_overlap_minpct):
-    # cnv_overlap_minpct = 0.5
+    target_chrom, target_coords = target_variant["region"].split(":")
+    target_start, target_end = map(int, target_coords.split("-"))
+
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
+    intervals = [
+        (variant.start, variant.end)
+        for variant in vcf_reader
+        if variant.CHROM == target_chrom
+    ]
 
-    # get the chromosome and start/end positions from the variant
-    target_chrom = target_variant["region"].split(":")[0]
-    target_start = int(target_variant["region"].split(":")[1].split("-")[0])
-    target_end = int(target_variant["region"].split(":")[1].split("-")[1])
-    target_vartype = target_variant["vartype"].upper()
+    merged_intervals = merge_cnv_intervals(intervals, 1000)
 
-    # Iterate over all variants in the VCF
-    for variant in vcf_reader:
-        if (
-            variant.CHROM == target_chrom
-            and variant.var_subtype.upper() == target_vartype
-        ):
-            rec_overlap = reciprocal_overlap(
-                target_start, target_end, variant.start, variant.end
-            )
-            if rec_overlap >= cnv_overlap_minpct:
-                print("Found: {}".format(variant))
-                return True
-    print("Missing: {}".format(target_variant))
+    for start, end in merged_intervals:
+        if reciprocal_overlap(target_start, target_end, start, end) >= cnv_overlap_minpct:
+            print(f"Found: {target_chrom}:{start}-{end}")
+            return True
+
+    print(f"Missing: {target_variant}")
     return False
+
+
 
 
 def search_pbsv(
     target_variant,
     vcf_paths,
     snv_pos_leniency,
-    ins_pos_leniency,
-    ins_size_leniency,
-    del_pos_leniency,
-    del_size_leniency,
+    indel_pos_leniency,
+    indel_size_leniency,
+    sv_overlap_minpct
 ):
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
@@ -375,62 +417,79 @@ def search_pbsv(
         target_inslen = int(target_variant["specific_info"])
 
         for variant in vcf_reader:
-            if (
-                variant.CHROM == target_chrom
-                and variant.var_subtype.upper() == target_vartype
-                and condition_start_within_leniency(
-                    target_start, variant.start, ins_pos_leniency
-                )
-                and condition_inslen_within_leniency_using_ref_alt(
-                    target_inslen, variant, ins_size_leniency
-                )
-            ):
+            
+            vartype_condition = variant.var_subtype.upper() == target_vartype
+            
+            if target_inslen <= 50:
+                startpos_condition = condition_start_within_leniency(target_start, variant.start, indel_pos_leniency)
+            else:
+                startpos_condition = condition_start_within_leniency(target_start, variant.start, target_inslen)
+                
+            if not (variant.CHROM == target_chrom and vartype_condition and startpos_condition):
+                continue
+            
+            if target_inslen <= 50:
+                svlen_condition = condition_inslen_within_leniency_using_ref_alt(target_inslen, variant, indel_size_leniency)
+            else:
+                svlen_condition = reciprocal_overlap(target_start, target_start+target_inslen, variant.start, variant.start+len(variant.ALT[0])) >= sv_overlap_minpct
+            
+            if (svlen_condition):
                 print("Found: {}".format(variant))
                 return True
+            
         print("Missing: {}".format(target_variant))
         return False
 
     elif target_vartype == "DEL":
         target_start = int(target_variant["region"].split(":")[1].split("-")[0])
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
+        
         for variant in vcf_reader:
-            if (
-                variant.CHROM == target_chrom
-                and variant.var_subtype.upper() == target_vartype
-                and condition_start_end_within_leniency(
-                    target_start,
-                    target_end,
-                    variant.start,
-                    variant.end,
-                    del_pos_leniency,
-                )
-                and condition_svlen_within_leniency_using_ref_alt(
-                    target_start, target_end, variant, del_size_leniency
-                )
-            ):
+            
+            vartype_condition = variant.var_subtype.upper() == target_vartype
+
+            if target_end-target_start <= 50:
+                start_end_pos_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,indel_pos_leniency)
+            else:
+                start_end_pos_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,target_end-target_start)
+                                  
+            if not (variant.CHROM == target_chrom and vartype_condition and start_end_pos_condition):
+                continue
+            
+            if target_end-target_start <= 50:
+                svlen_condition = condition_svlen_within_leniency_using_ref_alt(target_start, target_end, variant, indel_size_leniency)
+            else:
+                svlen_condition = reciprocal_overlap(target_start, target_end, variant.start, variant.end) >= sv_overlap_minpct
+                
+            if (svlen_condition):
                 print("Found: {}".format(variant))
-                return True
+                return True    
+            
         print("Missing: {}".format(target_variant))
         return False
 
     elif target_vartype in ["DUP", "INV"]:
         target_start = int(target_variant["region"].split(":")[1].split("-")[0])
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
+        
         for variant in vcf_reader:
-            if (
-                variant.CHROM == target_chrom
-                and variant.var_subtype.upper() == target_vartype
-                and condition_start_end_within_leniency(
-                    target_start,
-                    target_end,
-                    variant.start,
-                    variant.end,
-                    del_pos_leniency,
-                )
-                and condition_svlen_within_leniency_using_info_svlen(
-                    target_start, target_end, variant, del_size_leniency
-                )
-            ):
+            
+            vartype_condition = variant.var_subtype.upper() == target_vartype
+
+            if target_end-target_start <= 50:
+                start_end_pos_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,indel_pos_leniency)
+            else:
+                start_end_pos_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,target_end-target_start)
+                    
+            if not (variant.CHROM == target_chrom and vartype_condition and start_end_pos_condition):
+                continue
+            
+            if target_end-target_start <= 50:
+                svlen_condition = condition_svlen_within_leniency_using_info_svlen(target_start, target_end, variant, indel_size_leniency)
+            else:
+                svlen_condition = reciprocal_overlap(target_start, target_end, variant.start, variant.end) >= sv_overlap_minpct
+                
+            if (svlen_condition):
                 print("Found: {}".format(variant))
                 return True
         print("Missing: {}".format(target_variant))
@@ -471,9 +530,8 @@ def search_para(
     target_variant,
     vcf_paths,
     snv_pos_leniency,
-    ins_pos_leniency,
-    del_pos_leniency,
-    para_del_dup_inv_size_leniency,
+    indel_pos_leniency,
+    indel_size_leniency
 ):
     vcf_reader = cyvcf2.VCF(vcf_paths[0])
 
@@ -505,10 +563,10 @@ def search_para(
                 variant.CHROM == target_chrom
                 and variant.var_type.upper() == target_vartype
                 and condition_start_within_leniency(
-                    target_start, variant.start, ins_pos_leniency
+                    target_start, variant.start, indel_pos_leniency
                 )
                 and condition_inslen_within_leniency_using_ref_alt(
-                    target_inslen, variant, ins_size_leniency
+                    target_inslen, variant, indel_size_leniency
                 )
             ):
                 print("Found: {}".format(variant))
@@ -532,20 +590,20 @@ def search_para(
             else:
                 var_type = "snp"
 
-            if (
-                variant.CHROM == target_chrom
-                and var_type == "del"
-                and condition_start_end_within_leniency(
-                    target_start,
-                    target_end,
-                    variant.start,
-                    variant.end,
-                    del_pos_leniency,
-                )
-                and condition_svlen_within_leniency_using_ref_alt(
-                    target_start, target_end, variant, para_del_dup_inv_size_leniency
-                )
-            ):
+            if target_end - target_start <= 50:
+                position_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,indel_pos_leniency)
+            else:
+                position_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.end,target_end - target_start)
+            
+            if not (variant.CHROM == target_chrom and var_type == "del" and position_condition):
+                continue
+            
+            if target_end - target_start <= 50:
+                svlen_condition = condition_svlen_within_leniency_using_ref_alt(target_start, target_end, variant, indel_size_leniency)
+            else:
+                svlen_condition = reciprocal_overlap(target_start, target_end, variant.start, variant.end) >= sv_overlap_minpct
+            
+            if (svlen_condition):
                 print("Found: {}".format(variant))
                 return True
 
@@ -555,22 +613,35 @@ def search_para(
     elif target_vartype == "INV":
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader():
-            if (
-                variant.CHROM == target_chrom
-                and variant.var_subtype.upper() == "INV"
-                and condition_start_end_within_leniency(
-                    target_start,
-                    target_end,
-                    variant.start,
-                    variant.start + int(variant.INFO.get("SVLEN")),
-                    del_pos_leniency,
-                )
-                and condition_svlen_within_leniency_using_info_svlen(
-                    target_start, target_end, variant, para_del_dup_inv_size_leniency
-                )
-            ):
+            # condition_start_end_within_leniency(
+            #         target_start,
+            #         target_end,
+            #         variant.start,
+            #         variant.start + int(variant.INFO.get("SVLEN")),
+            #         indel_pos_leniency,
+            #     )
+            
+            if (variant.var_subtype.upper() != "INV"):
+                continue
+
+            if target_end - target_start <= 50:
+                position_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.start + int(variant.INFO.get("SVLEN")),indel_pos_leniency)
+            else:
+                position_condition = condition_start_end_within_leniency(target_start,target_end,variant.start,variant.start + int(variant.INFO.get("SVLEN")),target_end - target_start)
+                
+        
+            if not (variant.CHROM == target_chrom and variant.var_subtype.upper() == "INV" and position_condition):
+                continue
+                
+            if target_end - target_start <= 50:
+                svlen_condition = condition_svlen_within_leniency_using_info_svlen(target_start, target_end, variant, indel_size_leniency)
+            else:
+                svlen_condition = reciprocal_overlap(target_start, target_end, variant.start, variant.start + int(variant.INFO.get("SVLEN"))) >= sv_overlap_minpct
+            
+            if (svlen_condition):
                 print("Found: {}".format(variant))
                 return True
+            
         print("Missing: {}".format(target_variant))
         return False
 
@@ -684,6 +755,7 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
     all_res["found"] = "NA"
     for index, variant in variants.iterrows():
         source = variant["source"].lower()
+        
         if permutation_index:
             infile_paths = get_and_check_path_downsample(
                 run_basedir, permutation_index, variant, source
@@ -701,20 +773,18 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
                 variant,
                 infile_paths,
                 snv_pos_leniency,
-                ins_pos_leniency,
-                ins_size_leniency,
-                del_pos_leniency,
-                del_size_leniency,
+                indel_pos_leniency,
+                indel_size_leniency,
+                sv_overlap_minpct,
             )
         elif source == "pbsv":
             result = search_pbsv(
                 variant,
                 infile_paths,
                 bnd_pos_leniency,
-                ins_pos_leniency,
-                ins_size_leniency,
-                del_pos_leniency,
-                del_size_leniency,
+                indel_pos_leniency,
+                indel_size_leniency,
+                sv_overlap_minpct
             )
         elif source == "hificnv":
             result = search_hificnv(variant, infile_paths, cnv_overlap_minpct)
@@ -723,9 +793,8 @@ def main(input_variants, run_basedir, output_file, permutation_index=None):
                 variant,
                 infile_paths,
                 snv_pos_leniency,
-                ins_pos_leniency,
-                del_pos_leniency,
-                para_del_dup_inv_size_leniency,
+                indel_pos_leniency,
+                indel_size_leniency
             )
         elif source == "para_json":
             result = search_para_json(variant, infile_paths)
