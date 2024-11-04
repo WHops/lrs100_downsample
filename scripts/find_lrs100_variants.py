@@ -273,6 +273,7 @@ def condition_svlen_within_leniency_using_ref_alt(
 
 
 def search_mt(target_variant, vcf_paths, snv_pos_leniency, mt_percentpoints_leniency):
+
     tsv = pd.read_csv(vcf_paths[0], sep="\t", header=0)
     target_chrom = target_variant["region"].split(":")[0]
     target_start = int(target_variant["region"].split(":")[1].split("-")[0])
@@ -284,7 +285,6 @@ def search_mt(target_variant, vcf_paths, snv_pos_leniency, mt_percentpoints_leni
         target_variant["specific_info"].split(":")[0].split(">")[:2]
     )
     target_percent = float(target_variant["specific_info"].split(":")[1])
-
     for index, row in tsv.iterrows():
         if (
             row["Chromosome"] == target_chrom
@@ -385,7 +385,6 @@ def search_hificnv(target_variant, vcf_paths, cnv_overlap_minpct):
         for variant in vcf_reader
         if variant.CHROM == target_chrom
     ]
-
     merged_intervals = merge_cnv_intervals(intervals, 1000)
 
     for start, end in merged_intervals:
@@ -613,13 +612,6 @@ def search_para(
     elif target_vartype == "INV":
         target_end = int(target_variant["region"].split(":")[1].split("-")[1])
         for variant in vcf_reader():
-            # condition_start_end_within_leniency(
-            #         target_start,
-            #         target_end,
-            #         variant.start,
-            #         variant.start + int(variant.INFO.get("SVLEN")),
-            #         indel_pos_leniency,
-            #     )
             
             if (variant.var_subtype.upper() != "INV"):
                 continue
@@ -679,7 +671,6 @@ def search_str(target_variant, vcf_paths, str_pos_leniency, str_cn_fraction_leni
     print("MISSING: {}".format(target_variant))
     return False
 
-
 def search_para_json(target_variant, json_paths):
     with open(json_paths[0], "r") as file:
         data = json.load(file)
@@ -688,15 +679,37 @@ def search_para_json(target_variant, json_paths):
     json_genes_missing_names = ["rccx"]
 
     target_main_gene = target_variant["region"]
-    target_cns_list = target_variant["specific_info"].split(",")
+   
+    # Sometimes the json has no values at all. Not sure why.
+    # See labbook entry [para_json_null] from 8th May 2024
+    if all(value is None for value in data[target_main_gene].values()):
+        return False 
+    
+    # If there is a '+' in target_variant["specific_info"], split by it
+    if (target_variant["vartype"] == 'opn1lw_as'):
+        target_gene,target_asconfig = target_variant["specific_info"].split(':')
+        if (target_asconfig == 'LIVVA'):
+            target_string = target_gene
+        else:
+            target_string = "{}_{}".format(target_gene, target_asconfig)
+            
+        if (target_string in data[target_main_gene]['annotated_haplotypes'].values()):
+            return True
+        else:
+            return False
+            
+    if "+" in target_variant["specific_info"]:
+        target_cns_list = target_variant["specific_info"].split("+")
+        return_combined_cns = True
+    else:
+        target_cns_list = target_variant["specific_info"].split(",")
+        return_combined_cns = False
+        
     target_gene_dict = {
         item.split(":")[0]: int(item.split(":")[1]) for item in target_cns_list
     }
 
-    # Sometimes the json has no values at all. Not sure why.
-    # See labbook entry [para_json_null] from 8th May 2024
-    if all(value is None for value in data[target_main_gene].values()):
-        return False
+
     haplotypes = list(data[target_main_gene]["final_haplotypes"].values())
 
     if target_main_gene in json_genes_missing_names:
@@ -719,7 +732,6 @@ def search_para_json(target_variant, json_paths):
 
     # where the values of gene_counts are 'null', convert to 0
     gene_counts = {k: 0 if v is None else v for k, v in gene_counts.items()}
-
     # Check for zero-value entries in target_gene_dict and add them to gene_counts if not present
     for key, value in target_gene_dict.items():
         if value == 0 and key not in gene_counts:
@@ -736,7 +748,10 @@ def search_para_json(target_variant, json_paths):
 
     if target_total_n == actual_total_n:
         print("Found: {}".format(target_variant))
-        return "CN-correct"
+        if (return_combined_cns):
+            return True
+        else:
+            return "CN-correct"
 
     return False
 
