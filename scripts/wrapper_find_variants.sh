@@ -25,7 +25,7 @@ commands=()
 for X in "${X_values[@]}"; do
     for perm in "${permutations[@]}"; do
         output="variants_report_${X}_${perm}.tsv"
-        commands+=("python scripts/find_lrs100_variants.py data/fullvar_withvar.tsv ${data_basedir}/${X} ${output} ${perm}")
+        commands+=("python scripts/find_lrs100_variants_paramversion.py /ifs/data/research/projects/wolfram/projects/downsampling/data/oct31/all_oct31.tsv ${data_basedir}/${X} ${output} ${perm}")
     done
 done
 
